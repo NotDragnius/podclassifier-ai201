@@ -91,10 +91,14 @@ the format below:" followed by the output format you chose.
 **What output format should you request from the LLM?**
 
 ```
-[blank — you need to parse the response in classify_episode(). What format
-makes parsing reliable? Think about: a single label on its own line?
-A structured format like "Label: X / Reasoning: Y"? JSON?
-What are the tradeoffs?]
+We request the following output format:
+Label: <label>
+Reasoning: <reasoning>
+
+Tradeoffs:
+- A single label on its own line is simple but lacks reasoning, making it harder to debug why the model made a choice.
+- JSON is highly structured but LLMs sometimes add markdown wrappers or have syntax errors, requiring extra cleaning code.
+- A prefix-based key-value format (Label: X / Reasoning: Y) is easy for the LLM to follow, works well even with markdown wrappers, and is extremely robust to parse using line-by-line prefix matching or simple regular expressions.
 ```
 
 ---
@@ -102,8 +106,8 @@ What are the tradeoffs?]
 **Edge cases to handle in the prompt:**
 
 ```
-[blank — what if labeled_examples is empty? What if the description is very
-short? How does your prompt handle these?]
+- Empty labeled_examples: If the list is empty, we omit the reference examples section entirely and instruct the LLM to classify based only on its pre-existing knowledge of the definitions.
+- Very short description: We still enclose the description in the standard template format (Title: ..., Description: ...). This ensures structural consistency so the LLM knows exactly which text to classify even if it is only a few words.
 ```
 
 ---
@@ -159,9 +163,10 @@ Extract the response text from:
 **Step 3 — Parse the response:**
 
 ```
-[blank — how do you extract the label and reasoning from the LLM's text output?
-What string operations or parsing logic do you need?
-This depends on the output format you chose in build_few_shot_prompt.]
+We will parse the response line-by-line or using regular expressions:
+- For the label: search for the line starting with "Label:" (case-insensitive) and extract everything after the colon, strip whitespace, and convert to lowercase.
+- For the reasoning: search for the line starting with "Reasoning:" (case-insensitive) and extract the rest of the text, including subsequent lines if any.
+- Use regex matches like `r"(?i)label:\s*(\w+)"` and `r"(?i)reasoning:\s*(.*)"` (compiled with re.DOTALL) as a fallback to robustly capture the values.
 ```
 
 ---
@@ -169,8 +174,7 @@ This depends on the output format you chose in build_few_shot_prompt.]
 **Step 4 — Validate the label:**
 
 ```
-[blank — what do you do if the LLM returns a label that isn't in VALID_LABELS?
-What should label be set to?]
+If the parsed label is not in VALID_LABELS, we set the label to "unknown" to prevent upstream issues.
 ```
 
 ---
@@ -178,9 +182,12 @@ What should label be set to?]
 **Step 5 — Handle errors gracefully:**
 
 ```
-[blank — what could go wrong? (Network error? Unparseable response?)
-What should the function return if something fails?
-Hint: the evaluation loop runs 20 calls — one bad response shouldn't crash everything.]
+We wrap the API call and parsing logic in a try-except block. If a Groq API error, timeout, or unparseable response occurs, we catch the exception and return:
+{
+    "label": "unknown",
+    "reasoning": "Error occurred during classification: " + str(e),
+}
+This allows the evaluation loop to continue classifying the remaining episodes.
 ```
 
 ---
@@ -213,24 +220,26 @@ any labels you're unsure about. Annotation quality is part of the lab.
 **Test: what does the raw LLM response look like for one episode?**
 
 ```
-Episode tested: [title]
-Raw response text: [paste it here]
+Episode tested: Marine Biologist Dr. Amara Diallo on What Coral Bleaching Actually Looks Like
+Raw response text:
+Label: interview
+Reasoning: This episode features a conversation between the host and Dr. Amara Diallo, where they discuss her experiences and expertise on coral reefs, making it a clear example of an interview format.
 ```
 
 **How did you parse the label out of the response?**
 
 ```
-[describe the string operations — strip, split, lower, etc.]
+We split the response text by lines, trimmed each line, and checked if the line (lower-cased) started with the prefixes "label:" or "reasoning:". If a line starts with "label:", we split by the first colon to extract the label, stripping whitespace and converting to lowercase. If a line starts with "reasoning:", we extract the reasoning. If a subsequent line is found that doesn't start with a known prefix, we append it to the reasoning to handle multi-line reasoning robustly.
 ```
 
 **Did any episodes return `"unknown"`? If so, why?**
 
 ```
-[yes / no — if yes, what did the raw response look like?]
+no
 ```
 
 **One thing about the output format that surprised you:**
 
 ```
-[your answer here]
+The LLM adheres extremely consistently to the requested "Label: <label>" format, without adding conversational wrappers like "Sure, here is the label:" or wrapping the key-value text in markdown codeblocks. This made line-by-line parsing extremely reliable.
 ```
